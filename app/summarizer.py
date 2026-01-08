@@ -2,10 +2,31 @@ import os
 from typing import List
 from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def get_client() -> OpenAI:
+    """
+    Lazily creates and returns an OpenAI client.
+
+    Why this exists:
+    - Prevents environment variable access at import time
+    - Ensures OPENAI_API_KEY is available when the client is created
+    - Avoids crashes during uvicorn reloads and multiprocessing
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set in the environment")
+
+    return OpenAI(api_key=api_key)
 
 
 def chunk_text(text: str, chunk_size: int = 1200) -> List[str]:
+    """
+    Splits large text into fixed-size chunks.
+
+    Why this exists:
+    - LLMs have token limits
+    - Chunking enables processing arbitrarily large documents
+    """
     chunks = []
     start = 0
 
@@ -18,6 +39,14 @@ def chunk_text(text: str, chunk_size: int = 1200) -> List[str]:
 
 
 def summarize_text(text: str) -> dict:
+    """
+    Summarizes a large document by:
+    1. Chunking the text
+    2. Summarizing each chunk independently
+    3. Aggregating partial summaries into a final summary
+    """
+    client = get_client()
+
     chunks = chunk_text(text)
     partial_summaries = []
 
@@ -25,8 +54,14 @@ def summarize_text(text: str) -> dict:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a technical document summarizer."},
-                {"role": "user", "content": chunk}
+                {
+                    "role": "system",
+                    "content": "You are a technical document summarizer."
+                },
+                {
+                    "role": "user",
+                    "content": chunk
+                }
             ],
         )
 
@@ -35,8 +70,17 @@ def summarize_text(text: str) -> dict:
     final_response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Combine the following summaries into a concise final summary with key points."},
-            {"role": "user", "content": "\n".join(partial_summaries)}
+            {
+                "role": "system",
+                "content": (
+                    "Combine the following summaries into a concise final summary "
+                    "with clear key points."
+                )
+            },
+            {
+                "role": "user",
+                "content": "\n".join(partial_summaries)
+            }
         ],
     )
 
