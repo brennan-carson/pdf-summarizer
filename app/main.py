@@ -1,27 +1,37 @@
+# app/main.py
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse
+from app.summarizer import summarize_text
 from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env
 load_dotenv()
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from app.pdf_utils import extract_text_from_pdf
-from app.summarizer import summarize_text
-from app.schemas import SummaryResponse
+# Initialize FastAPI app
+app = FastAPI(
+    title="LLM-Powered PDF Summarizer API",
+    description="Upload PDFs and get summaries with key points using OpenAI GPT",
+    version="1.0.0"
+)
 
-app = FastAPI(title="LLM-Powered PDF Summarizer API")
+# Simple root route to verify server is running
+@app.get("/")
+def root():
+    return {"message": "PDF Summarizer API is running"}
 
-
-@app.post("/summarize-pdf", response_model=SummaryResponse)
+# Endpoint to summarize a PDF
+@app.post("/summarize-pdf")
 async def summarize_pdf(file: UploadFile = File(...)):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    # Only allow PDF files
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="Empty file uploaded")
-
-    text = extract_text_from_pdf(pdf_bytes)
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="No extractable text found in PDF")
-
-    summary = summarize_text(text)
-
-    return summary
+    try:
+        # Read the uploaded file
+        pdf_bytes = await file.read()
+        # Use your summarizer function
+        result = summarize_text(pdf_bytes)
+        return JSONResponse(content=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
