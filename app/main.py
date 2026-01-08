@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from app.pdf_utils import extract_text_from_pdf
 from app.summarizer import summarize_text
