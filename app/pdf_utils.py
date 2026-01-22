@@ -3,6 +3,7 @@ from io import BytesIO
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+
     text_chunks = []
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
