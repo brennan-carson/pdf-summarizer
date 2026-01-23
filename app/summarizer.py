@@ -1,8 +1,8 @@
 import os
 from typing import List
 from openai import OpenAI
-from PyPDF2 import PdfReader
-from io import BytesIO
+from app.pdf_utils import extract_text_from_pdf
+
 
 def get_client() -> OpenAI:
     """
@@ -14,32 +14,18 @@ def get_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def pdf_bytes_to_text(pdf_bytes: bytes) -> str:
-    """
-    Extracts text from PDF bytes.
-
-    Why this exists:
-    - PDF files are binary; LLMs cannot read PDF natively
-    - Converts document into a string suitable for chunking
-    """
-    pdf_file = BytesIO(pdf_bytes)
-    reader = PdfReader(pdf_file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
-    return text.strip()
-
-
 def chunk_text(text: str, chunk_size: int = 1200) -> List[str]:
     """
-    Splits large text into fixed-size chunks.
+    Splits large text into fixed-size chunks to stay within model limits.
     """
     chunks = []
     start = 0
+
     while start < len(text):
         end = start + chunk_size
         chunks.append(text[start:end])
         start = end
+
     return chunks
 
 
@@ -47,16 +33,16 @@ def summarize_text(pdf_bytes: bytes) -> dict:
     """
     Summarizes a PDF document.
 
-    Steps:
-    1. Extract text from PDF
-    2. Chunk the text
-    3. Summarize each chunk independently
-    4. Aggregate partial summaries into a final summary
+    Flow:
+    1. Convert PDF bytes → plain text
+    2. Split text into chunks
+    3. Summarize each chunk
+    4. Combine summaries into a final result
     """
     client = get_client()
 
     # Step 1: PDF → text
-    text = pdf_bytes_to_text(pdf_bytes)
+    text = extract_text_from_pdf(pdf_bytes)
     if not text:
         raise ValueError("No text could be extracted from the PDF")
 
@@ -69,18 +55,34 @@ def summarize_text(pdf_bytes: bytes) -> dict:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a technical document summarizer."},
-                {"role": "user", "content": chunk}
+                {
+                    "role": "system",
+                    "content": "You are a technical document summarizer."
+                },
+                {
+                    "role": "user",
+                    "content": chunk
+                }
             ],
         )
+
         partial_summaries.append(response.choices[0].message.content)
 
-    # Step 4: Aggregate partial summaries
+    # Step 4: Aggregate summaries
     final_response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Combine the following summaries into a concise final summary with clear key points."},
-            {"role": "user", "content": "\n".join(partial_summaries)}
+            {
+                "role": "system",
+                "content": (
+                    "Combine the following summaries into a concise final summary "
+                    "with clear key points."
+                )
+            },
+            {
+                "role": "user",
+                "content": "\n".join(partial_summaries)
+            }
         ],
     )
 
