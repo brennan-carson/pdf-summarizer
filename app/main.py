@@ -1,8 +1,8 @@
 # app/main.py
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
-
 from app.summarizer import summarize_text
 
 # Load environment variables from .env (API keys, etc.)
@@ -15,31 +15,83 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Root route to verify server is running
+# Setup templates folder for HTML frontend
+templates = Jinja2Templates(directory="templates")
+
+
+# --------------------
+# Root route
+# --------------------
 @app.get("/")
 def root():
     return {"message": "PDF Summarizer API is running"}
 
-# Endpoint to summarize a PDF
+
+# --------------------
+# Existing API: JSON-based PDF summarization
+# --------------------
 @app.post("/summarize-pdf")
 async def summarize_pdf(file: UploadFile = File(...)):
-    # 1. Validate file type
+    # Validate file type
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
     try:
-        # 2. Read uploaded file into raw bytes
         pdf_bytes = await file.read()
-
-        # 3. Delegate ALL processing to the summarizer layer
         result = summarize_text(pdf_bytes)
-
-        # 4. Return structured JSON response
         return JSONResponse(content=result)
 
     except ValueError as e:
-        # Expected, user-related errors (e.g., unreadable PDF)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # Unexpected internal errors
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --------------------
+# New frontend route: serve HTML page
+# --------------------
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    """
+    Serves a minimal HTML page with a file upload form.
+    """
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+# --------------------
+# New frontend route: handle form submission
+# --------------------
+@app.post("/summarize", response_class=HTMLResponse)
+async def summarize_form(request: Request, file: UploadFile = File(...)):
+    """
+    Accepts PDF uploaded via the HTML form, processes it,
+    and returns the same page with the summary rendered.
+    """
+    # Validate file type
+    if not file.filename.lower().endswith(".pdf"):
+        return templates.TemplateResponse(
+            "index.html",
+            {"request": request, "summary": "Error: Only PDF files are accepted", "key_points": []},
+        )
+
+    # Read PDF bytes
+    pdf_bytes = await file.read()
+
+    try:
+        # Use your existing summarizer
+        result = summarize_text(pdf_bytes)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "index.html",
+            {"request": request, "summary": f"Error: {str(e)}", "key_points": []},
+        )
+
+    # Render HTML page with summary and key points
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "summary": result["document_summary"],
+            "key_points": result["key_points"],
+        },
+    )
